@@ -1,10 +1,12 @@
 from parser.auth_parser import parse_auth_log
 from detector.bruteforce import detect_bruteforce
 from detector.slow_bruteforce import detect_slow_bruteforce
-from alerting.alerts_store import persist_alerts
 from detector.password_spray import detect_password_spray
+from alerting.alerts_store import persist_alerts
+from execution.executor import generate_execution_plan
 
 
+# NORMALIZATION
 def normalize_alerts(alerts, is_slow=False, is_spray=False):
     hits = {}
 
@@ -15,7 +17,9 @@ def normalize_alerts(alerts, is_slow=False, is_spray=False):
             hits[ip] = {
                 "attempts": 0,
                 "users": set(),
-                "window_seconds": int((alert["end"] - alert["start"]).total_seconds())
+                "window_seconds": int(
+                    (alert["end"] - alert["start"]).total_seconds()
+                )
             }
 
         if is_slow:
@@ -27,123 +31,93 @@ def normalize_alerts(alerts, is_slow=False, is_spray=False):
             hits[ip]["attempts"] += len(alert["users"])
             hits[ip]["users"].update(alert["users"])
 
-        else:  # fast brute
+        else:  # FAST_BRUTE
             hits[ip]["attempts"] += alert["attempts"]
             if "user" in alert:
                 hits[ip]["users"].add(alert["user"])
 
     return hits
 
-def main():
-    events = parse_auth_log()
 
-    fast_alerts = detect_bruteforce(events)
-    slow_alerts = detect_slow_bruteforce(events)
-    spray_alerts = detect_password_spray(events)
+# CLASSIFICATION
 
-    if not fast_alerts and not slow_alerts:
-        print("No suspicious activity detected.")
-        return
-
-    # Normalize detector outputs
-    fast_hits = normalize_alerts(fast_alerts)
-    slow_hits = normalize_alerts(slow_alerts, is_slow=True)
-    spray_hits = normalize_alerts(spray_alerts, is_spray=True)
-
-
-    # Classify attacks (Day 4 logic)
-    final_alerts = classify_attacks(fast_hits, slow_hits, spray_hits)
-    # Decide response actions (Day 7)
-    for alert in final_alerts:
-        response = decide_response(alert)
-        alert.update(response)
-
-
-    # Print unified alerts
-    print_alerts(final_alerts)
-    persist_alerts(final_alerts)
-    
-
-
-            
 def classify_attacks(fast_hits, slow_hits, spray_hits):
     alerts = []
 
-    all_ips = set(fast_hits.keys()) | set(slow_hits.keys()) | set(spray_hits.keys())
+    all_ips = set(fast_hits) | set(slow_hits) | set(spray_hits)
 
     for ip in all_ips:
-        spray = spray_hits.get(ip)
         fast = fast_hits.get(ip)
         slow = slow_hits.get(ip)
-        
-        users=set() # for repetitive users
-        attempts=0
-        window=0
-        rules_triggered=[]
+        spray = spray_hits.get(ip)
 
-        # RULE PRIORITY:
-        # SLOW_BRUTE >PASSWORD_SPRAY >FAST_BRUTE > NORMAL
+        attempts = 0
+        users = set()
+        window = 0
+        rules_triggered = []
+
+        # Priority:
+        # SLOW > SPRAY > FAST
+
         if slow:
             attempts = slow["attempts"]
-            window = slow["window_seconds"]
             users = slow["users"]
+            window = slow["window_seconds"]
             rules_triggered.append("SLOW_BRUTE")
-            
+
         if spray:
             attempts = spray["attempts"]
-            window = spray["window_seconds"]
             users = spray["users"]
+            window = spray["window_seconds"]
             rules_triggered.append("PASSWORD_SPRAY")
-            
+
         if fast:
             attempts = fast["attempts"]
-            window = fast["window_seconds"]
             users = fast["users"]
+            window = fast["window_seconds"]
             rules_triggered.append("FAST_BRUTE")
 
         if not rules_triggered:
-            continue  # NORMAL traffic, ignore
-        
-        
+            continue
 
-        alert = {
+        alerts.append({
             "ip": ip,
             "attack_type": rules_triggered[0],
             "attempts": attempts,
-            "window_seconds": window,
             "users": list(users),
+            "window_seconds": window,
             "rules_triggered": rules_triggered
-        }
-
-        alerts.append(alert)
+        })
 
     return alerts
-    
-def decide_response(alert):
-    attack_type = alert["attack_type"]
-    attempts = alert["attempts"]
-    users_count = len(alert["users"])
 
-    if attack_type == "SLOW_BRUTE":
+
+# RESPONSE DECISION
+def decide_response(alert):
+    attack = alert["attack_type"]
+    attempts = alert["attempts"]
+    users = len(alert["users"])
+
+    if attack == "SLOW_BRUTE":
         return {
             "response_action": "BLOCK",
             "confidence": "HIGH",
-            "response_reason": "Sustained authentication failures over extended time window"
+            "response_reason": "Sustained authentication failures over long duration"
         }
 
-    if attack_type == "PASSWORD_SPRAY":
+    if attack == "PASSWORD_SPRAY":
         return {
             "response_action": "FLAG_FOR_REVIEW",
             "confidence": "MEDIUM",
-            "response_reason": "Multiple user accounts targeted from a single IP"
+            "response_reason": "Multiple accounts targeted from a single IP"
         }
 
-    if attack_type == "FAST_BRUTE":
+    if attack == "FAST_BRUTE":
         if attempts >= 5:
             return {
                 "response_action": "FLAG_FOR_REVIEW",
                 "confidence": "MEDIUM",
-                "response_reason": "Rapid repeated login failures for a single account"
+                "response_reason": "Rapid repeated authentication failures"
             }
         else:
             return {
@@ -155,9 +129,11 @@ def decide_response(alert):
     return {
         "response_action": "MONITOR",
         "confidence": "LOW",
-        "response_reason": "No strong attack indicators"
+        "response_reason": "No strong indicators"
     }
-    
+
+
+# OUTPUT
 
 def print_alerts(alerts):
     for a in alerts:
@@ -172,6 +148,42 @@ def print_alerts(alerts):
             f"  ↳ Reason: {a['response_reason']}\n"
         )
 
+
+# MAIN
+
+def main():
+    events = parse_auth_log()
+
+    fast_alerts = detect_bruteforce(events)
+    slow_alerts = detect_slow_bruteforce(events)
+    spray_alerts = detect_password_spray(events)
+
+    if not fast_alerts and not slow_alerts and not spray_alerts:
+        print("No suspicious activity detected.")
+        return
+
+    fast_hits = normalize_alerts(fast_alerts)
+    slow_hits = normalize_alerts(slow_alerts, is_slow=True)
+    spray_hits = normalize_alerts(spray_alerts, is_spray=True)
+
+    final_alerts = classify_attacks(fast_hits, slow_hits, spray_hits)
+
+    for alert in final_alerts:
+        alert.update(decide_response(alert))
+
+    print_alerts(final_alerts)
+    persist_alerts(final_alerts)
+
+    # DAY 8: EXECUTION PLANS
+
+    execution_plans = []
+
+    for alert in final_alerts:
+        plan = generate_execution_plan(alert)
+        execution_plans.append(plan)
+
+    for plan in execution_plans:
+        print("[EXECUTION PLAN]", plan)
 
 
 if __name__ == "__main__":

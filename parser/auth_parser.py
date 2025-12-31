@@ -3,9 +3,9 @@ import re
 
 FAILED_REGEX = re.compile(
     r'^(?P<ts>[\d\-T:\.+]+)\s+\S+\s+sshd.*?(Failed password|Connection closed) by (invalid user )?(?P<user>\w+)\s+(?P<ip>[0-9a-fA-F:.]+)'
-)
+) #to find patterns
 
-def parse_auth_log(log_path="/var/log/auth.log"):
+def parse_auth_log(log_path="/var/log/auth.log"): #specifying the path of log files
     events = []
 
     with open(log_path, "r") as f:
@@ -20,4 +20,5 @@ def parse_auth_log(log_path="/var/log/auth.log"):
                 })
 
     return events
+
 

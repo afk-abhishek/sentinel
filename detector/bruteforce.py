@@ -2,10 +2,10 @@ from collections import defaultdict
 from datetime import timedelta
 
 def detect_bruteforce(events, threshold=5, window_minutes=2):
-    failures = defaultdict(list)
+    failures = defaultdict(list) #dictionary for storing failures
     alerts = []
 
-    # group failures by IP
+    # group failures by IP: IP --> 'key' and time --> 'value' 
     for event in events:
         failures[event["ip"]].append(event["time"])
 
@@ -28,4 +28,5 @@ def detect_bruteforce(events, threshold=5, window_minutes=2):
                 break
 
     return alerts
+    
 
