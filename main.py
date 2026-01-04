@@ -3,8 +3,8 @@ from detector.bruteforce import detect_bruteforce
 from detector.slow_bruteforce import detect_slow_bruteforce
 from detector.password_spray import detect_password_spray
 from alerting.alerts_store import persist_alerts
-from execution.executor import generate_execution_plan
-
+from execution.executor import execute_plan
+from execution.planner import generate_execution_plan
 
 # NORMALIZATION
 def normalize_alerts(alerts, is_slow=False, is_spray=False):
@@ -183,7 +183,7 @@ def main():
         execution_plans.append(plan)
 
     for plan in execution_plans:
-        print("[EXECUTION PLAN]", plan)
+        execute_plan(plan)
 
 
 if __name__ == "__main__":
