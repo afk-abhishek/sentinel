@@ -1,3 +1,25 @@
+"""
+Main Orchestrator for Linux Authentication Threat Detection
+
+This module implements the end-to-end detection → classification →
+response pipeline for authentication-based attacks detected from
+/var/log/auth.log.
+
+Pipeline stages:
+1. Parse authentication logs into structured events
+2. Detect attack patterns (fast brute-force, slow brute-force, password spray)
+3. Normalize detector outputs into a common format
+4. Classify attacks with priority rules
+5. Decide response actions based on severity and confidence
+6. Generate and (optionally) execute response plans
+
+Design principles:
+- Early detection using sliding windows
+- Separation of detection vs response logic
+- Safe-by-default execution (dry-run mode)
+- Clear distinction between proof vs enrichment
+"""
+
 from parser.auth_parser import parse_auth_log
 from detector.bruteforce import detect_bruteforce
 from detector.slow_bruteforce import detect_slow_bruteforce
@@ -6,44 +28,98 @@ from alerting.alerts_store import persist_alerts
 from execution.executor import execute_plan
 from execution.planner import generate_execution_plan
 
-# NORMALIZATION
+
+# NORMALIZATION:
+
 def normalize_alerts(alerts, is_slow=False, is_spray=False):
+    """
+    Normalize raw detector alerts into per-IP aggregated hits.
+
+    Why normalization?
+    - Multiple detectors may trigger on the same IP
+    - Each detector reports only the *minimum proof* needed to fire
+    - We want a clean per-IP view before classification
+
+    Key fields:
+    - attempts: minimum proof that triggered detection
+    - total_attempts: total failures observed (severity context)
+    - users: affected usernames
+    - window_seconds: duration of the triggering window
+
+    Args:
+        alerts (list): Raw alerts from detectors
+        is_slow (bool): Indicates slow brute-force detector output
+        is_spray (bool): Indicates password spray detector output
+
+    Returns:
+        dict: { ip -> normalized attack data }
+    """
+
     hits = {}
 
     for alert in alerts:
         ip = alert["ip"]
 
+        # Initialize per-IP structure
         if ip not in hits:
             hits[ip] = {
-                "attempts": 0,
+                "attempts": 0,          # proof (threshold-based)
+                "total_attempts": 0,    # enrichment (severity)
                 "users": set(),
                 "window_seconds": int(
                     (alert["end"] - alert["start"]).total_seconds()
                 )
             }
 
-        if is_slow:
-            hits[ip]["attempts"] += alert["attempts"]
-            if "user" in alert:
-                hits[ip]["users"].add(alert["user"])
+        # Proof-based attempts:
+        # Use max(), not sum(), because each detector already
+        # represents a complete proof of malicious behavior.
+        hits[ip]["attempts"] = max(
+            hits[ip]["attempts"],
+            alert["attempts"]
+        )
 
-        elif is_spray:
-            hits[ip]["attempts"] += len(alert["users"])
+        # Severity-based attempts:
+        # Captures how bad the activity became overall.
+        hits[ip]["total_attempts"] = max(
+            hits[ip]["total_attempts"],
+            alert.get("total_attempts", alert["attempts"])
+        )
+
+        # Track affected users (if applicable)
+        if "user" in alert:
+            hits[ip]["users"].add(alert["user"])
+
+        if is_spray and "users" in alert:
             hits[ip]["users"].update(alert["users"])
-
-        else:  # FAST_BRUTE
-            hits[ip]["attempts"] += alert["attempts"]
-            if "user" in alert:
-                hits[ip]["users"].add(alert["user"])
 
     return hits
 
-
-# CLASSIFICATION
+# CLASSIFICATION:
 
 def classify_attacks(fast_hits, slow_hits, spray_hits):
-    alerts = []
+    """
+    Classify attacks per IP using detector priority.
 
+    Priority order:
+    1. Slow brute-force (most stealthy & dangerous)
+    2. Password spray
+    3. Fast brute-force
+
+    Only the highest-priority attack is reported as the
+    primary attack_type, while others can be retained
+    as contextual signals.
+
+    Args:
+        fast_hits (dict)
+        slow_hits (dict)
+        spray_hits (dict)
+
+    Returns:
+        list: Final classified alerts
+    """
+
+    alerts = []
     all_ips = set(fast_hits) | set(slow_hits) | set(spray_hits)
 
     for ip in all_ips:
@@ -51,52 +127,54 @@ def classify_attacks(fast_hits, slow_hits, spray_hits):
         slow = slow_hits.get(ip)
         spray = spray_hits.get(ip)
 
-        attempts = 0
-        users = set()
-        window = 0
-        rules_triggered = []
-
-        # Priority:
-        # SLOW > SPRAY > FAST
-
+        # Apply priority rules
         if slow:
-            attempts = slow["attempts"]
-            users = slow["users"]
-            window = slow["window_seconds"]
-            rules_triggered.append("SLOW_BRUTE")
+            attack_type = "SLOW_BRUTE"
+            data = slow
+            rules_triggered = ["SLOW_BRUTE"]
 
-        if spray:
-            attempts = spray["attempts"]
-            users = spray["users"]
-            window = spray["window_seconds"]
-            rules_triggered.append("PASSWORD_SPRAY")
+        elif spray:
+            attack_type = "PASSWORD_SPRAY"
+            data = spray
+            rules_triggered = ["PASSWORD_SPRAY"]
 
-        if fast:
-            attempts = fast["attempts"]
-            users = fast["users"]
-            window = fast["window_seconds"]
-            rules_triggered.append("FAST_BRUTE")
+        elif fast:
+            attack_type = "FAST_BRUTE"
+            data = fast
+            rules_triggered = ["FAST_BRUTE"]
 
-        if not rules_triggered:
+        else:
             continue
 
         alerts.append({
             "ip": ip,
-            "attack_type": rules_triggered[0],
-            "attempts": attempts,
-            "users": list(users),
-            "window_seconds": window,
+            "attack_type": attack_type,
+            "attempts": data["attempts"],              # proof
+            "total_attempts": data["total_attempts"],  # severity
+            "users": list(data["users"]),
+            "window_seconds": data["window_seconds"],
             "rules_triggered": rules_triggered
         })
 
     return alerts
 
 
-# RESPONSE DECISION
+# RESPONSE DECISION:
+
 def decide_response(alert):
+    """
+    Decide response action and confidence based on attack type.
+
+    Detection and response are intentionally decoupled:
+    - Detectors prove malicious behavior
+    - Response logic decides how aggressively to act
+
+    Returns:
+        dict: response_action, confidence, response_reason
+    """
+
     attack = alert["attack_type"]
     attempts = alert["attempts"]
-    users = len(alert["users"])
 
     if attack == "SLOW_BRUTE":
         return {
@@ -133,25 +211,13 @@ def decide_response(alert):
     }
 
 
-# OUTPUT
-
-def print_alerts(alerts):
-    for a in alerts:
-        print(
-            f"[ALERT] {a['attack_type']} | "
-            f"IP {a['ip']} | "
-            f"Attempts {a['attempts']} | "
-            f"Users {','.join(a['users']) if a['users'] else '-'} | "
-            f"Window {a['window_seconds']}s\n"
-            f"  ↳ Response: {a['response_action']} | "
-            f"Confidence: {a['confidence']}\n"
-            f"  ↳ Reason: {a['response_reason']}\n"
-        )
-
-
-# MAIN
+# MAIN :
 
 def main():
+    """
+    Entry point for the detection pipeline.
+    """
+
     events = parse_auth_log()
 
     fast_alerts = detect_bruteforce(events)
@@ -171,18 +237,10 @@ def main():
     for alert in final_alerts:
         alert.update(decide_response(alert))
 
-    print_alerts(final_alerts)
     persist_alerts(final_alerts)
-
-    # DAY 8: EXECUTION PLANS
-
-    execution_plans = []
 
     for alert in final_alerts:
         plan = generate_execution_plan(alert)
-        execution_plans.append(plan)
-
-    for plan in execution_plans:
         execute_plan(plan)
 
 
