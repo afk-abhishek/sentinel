@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 
-# in-memory state (later can be persisted)
+# in-memory execution state
+# key: (ip, action)
 EXECUTION_STATE = {}
 
 
-def is_in_cooldown(ip):
-    state = EXECUTION_STATE.get(ip)
-
+def is_in_cooldown(ip, action):
+    state = EXECUTION_STATE.get((ip, action))
     if not state:
         return False
 
@@ -18,13 +18,27 @@ def is_in_cooldown(ip):
 
 
 def mark_executed(ip, action, cooldown_seconds):
-    EXECUTION_STATE[ip] = {
+    now = datetime.utcnow()
+
+    EXECUTION_STATE[(ip, action)] = {
         "last_action": action,
-        "executed_at": datetime.utcnow(),
-        "cooldown_until": datetime.utcnow() + timedelta(seconds=cooldown_seconds)
+        "executed_at": now,
+        "cooldown_until": (
+            now + timedelta(seconds=cooldown_seconds)
+            if cooldown_seconds > 0
+            else None
+        )
     }
 
 
-def get_state(ip):
-    return EXECUTION_STATE.get(ip)
+def get_state(ip, action=None):
+    if action:
+        return EXECUTION_STATE.get((ip, action))
+
+    # return all actions for an IP
+    return {
+        k[1]: v
+        for k, v in EXECUTION_STATE.items()
+        if k[0] == ip
+    }
 
