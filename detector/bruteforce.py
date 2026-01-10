@@ -1,11 +1,19 @@
 from collections import defaultdict
 from datetime import timedelta
 
+
 def detect_bruteforce(events, threshold=5, window_minutes=2):
-    failures = defaultdict(list) #dictionary for storing failures
+    """
+    Detect fast brute-force attacks:
+    - Same IP
+    - Multiple failed attempts
+    - Within a short time window
+    """
+
+    failures = defaultdict(list)
     alerts = []
 
-    # group failures by IP: IP --> 'key' and time --> 'value' 
+    # Group failures by source IP
     for event in events:
         failures[event["ip"]].append(event["time"])
 
@@ -13,20 +21,21 @@ def detect_bruteforce(events, threshold=5, window_minutes=2):
         times.sort()
 
         for i in range(len(times)):
-            window = times[i:i+threshold]
+            window = times[i:i + threshold]
 
             if len(window) < threshold:
-                continue
+                break
 
             if window[-1] - window[0] <= timedelta(minutes=window_minutes):
                 alerts.append({
+                    "attack_type": "FAST_BRUTE",
                     "ip": ip,
-                    "attempts": threshold,
+                    "attempts": threshold,          # proof
+                    "total_attempts": len(times),  # severity
                     "start": window[0],
                     "end": window[-1]
                 })
-                break
+                break  # one alert per IP
 
     return alerts
-    
 
