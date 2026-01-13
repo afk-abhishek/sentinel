@@ -1,3 +1,5 @@
+'''Detection → Scoring → Correlation → Decision pipeline.'''
+
 from datetime import datetime
 
 def infer_attack_type(ip_alerts, total_score, event_types):
