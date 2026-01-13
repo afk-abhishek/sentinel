@@ -27,6 +27,7 @@ from detector.password_spray import detect_password_spray
 from alerting.alerts_store import persist_alerts
 from execution.executor import execute_plan
 from execution.planner import generate_execution_plan
+from alerting.score import score_alert
 
 
 # NORMALIZATION:
@@ -242,6 +243,8 @@ def main():
     for alert in final_alerts:
         plan = generate_execution_plan(alert)
         execute_plan(plan)
+    
+    
 
 
 if __name__ == "__main__":
