@@ -1,45 +1,55 @@
 import os
 from datetime import datetime
 
-ALERT_LOG = "alerts.log"
+INCIDENT_LOG = "incidents.log"
 
-def alert_fingerprint(alert):
-    return f"{alert['attack_type']}|{alert['ip']}|{alert['window_seconds']}"
 
-def load_existing_alerts():
-    if not os.path.exists(ALERT_LOG):
+def incident_fingerprint(incident):
+    """
+    Fingerprint for deduplication.
+    One incident per IP + attack_type.
+    """
+    return f"{incident['attack_type']}|{incident['ip']}"
+
+
+def load_existing_incidents():
+    if not os.path.exists(INCIDENT_LOG):
         return set()
 
     fingerprints = set()
-    with open(ALERT_LOG, "r") as f:
+    with open(INCIDENT_LOG, "r") as f:
         for line in f:
             parts = line.strip().split("|")
-            if len(parts) >= 4:
-                fingerprint = "|".join(parts[1:4])
+            if len(parts) >= 3:
+                fingerprint = "|".join(parts[1:3])
                 fingerprints.add(fingerprint)
 
     return fingerprints
 
-def persist_alerts(alerts):
-    existing = load_existing_alerts()
 
-    with open(ALERT_LOG, "a") as f:
-        for alert in alerts:
-            fp = alert_fingerprint(alert)
+def persist_incidents(incidents):
+    """
+    Persist correlated incidents to disk.
+    Storage only — no intelligence.
+    """
+    existing = load_existing_incidents()
 
+    with open(INCIDENT_LOG, "a") as f:
+        for incident in incidents:
+            fp = incident_fingerprint(incident)
             if fp in existing:
                 continue  # deduplicated
 
             timestamp = datetime.utcnow().isoformat() + "Z"
-            users = ",".join(alert["users"])
 
             line = (
                 f"{timestamp} | "
-                f"{alert['attack_type']} | "
-                f"{alert['ip']} | "
-                f"users={users} | "
-                f"attempts={alert['attempts']} | "
-                f"window={alert['window_seconds']}s\n"
+                f"{incident['attack_type']} | "
+                f"{incident['ip']} | "
+                f"severity={incident['severity']} | "
+                f"score={incident['total_score']} | "
+                f"start={incident['start']} | "
+                f"end={incident['end']}\n"
             )
 
             f.write(line)
