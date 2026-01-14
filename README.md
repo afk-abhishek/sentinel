@@ -19,19 +19,14 @@ plans.
 
 ## Detection & Response Pipeline
 
-auth.log
-  ↓
-Detection        (facts only)
-  ↓
-Scoring          (intensity)
-  ↓
-Correlation      (attack meaning)
-  ↓
-Response Decision (policy)
-  ↓
-Execution Planning (dry-run)
-  ↓
-Execution        (disabled by default)
+- **auth.log**
+- Detection (facts only)
+- Scoring (intensity)
+- Correlation (attack meaning)
+- Response Decision (policy)
+- Execution Planning (dry-run)
+- Execution (disabled by default)
+
 
 
 ## Architecture Principles
