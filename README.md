@@ -18,13 +18,13 @@ plans.
 - SSH authentication logs
 
 ## Detection Pipeline
-auth.log
-- Detection (facts)
-- Scoring (intensity)
-- Correlation (meaning of attack)
-- Response Descision (policy)
-- Execution Planning (dry-run)
-- Execution (disabled by default)
+  auth.log
+-> Detection (facts)
+-> Scoring (intensity)
+-> Correlation (meaning of attack)
+-> Response Descision (policy)
+-> Execution Planning (dry-run)
+-> Execution (disabled by default)
 
 ## Architecture Principles
 - Detectors emit factual signals only
