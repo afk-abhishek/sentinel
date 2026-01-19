@@ -1,12 +1,12 @@
 from collections import defaultdict
 from datetime import timedelta
 
-    """
-    Detect fast brute-force attacks:
+"""
+Detect fast brute-force attacks:
     - Same IP
     - Multiple failed attempts
     - Within a short time window
-    """
+"""
 
     
 def detect_bruteforce(events, threshold=5, window_minutes=5):
