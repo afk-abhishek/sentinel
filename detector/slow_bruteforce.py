@@ -9,18 +9,24 @@ def detect_slow_bruteforce(events, threshold=10, window_hours=1.0):
     - Repeated invalid password attempts
     - Spread over a long time window
 
-    Emits factual alerts only.
+    Emits factual signals only.
     """
 
-    attempts = defaultdict(list)
     alerts = []
+    events_by_ip = defaultdict(list)
 
-    # Group attempts by IP
+    # Group only failed auth events by IP
     for event in events:
-        attempts[event["ip"]].append(event["time"])
+        if event.get("event_type") != "invalid_password":
+            continue
+        events_by_ip[event["ip"]].append(event)
 
-    for ip, times in attempts.items():
-        times.sort()
+    window_delta = timedelta(hours=window_hours)
+
+    for ip, ip_events in events_by_ip.items():
+        ip_events.sort(key=lambda e: e["timestamp"])
+
+        times = [e["timestamp"] for e in ip_events]
 
         for i in range(len(times)):
             window = times[i:i + threshold]
@@ -28,13 +34,13 @@ def detect_slow_bruteforce(events, threshold=10, window_hours=1.0):
             if len(window) < threshold:
                 break
 
-            if window[-1] - window[0] <= timedelta(hours=window_hours):
+            if window[-1] - window[0] <= window_delta:
                 alerts.append({
                     "ip": ip,
-                    "event_type": "invalid_password",
-                    "count": threshold,
-                    "window_minutes": int(window_hours * 60),
-                    "timestamp": window[-1]
+                    "attempts": threshold,              # proof
+                    "total_attempts": len(ip_events),   # severity
+                    "start": window[0],
+                    "end": window[-1],
                 })
                 break  # one alert per IP
 
