@@ -1,6 +1,6 @@
 import subprocess
 from datetime import datetime
-from execution.state import is_in_cooldown, mark_executed
+from execution.state import is_action_in_cooldown, mark_action_executed
 
 LIVE_MODE = False  # Safety first
 PROTECTED_IPS = {"127.0.0.1", "::1"}
