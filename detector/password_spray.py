@@ -14,40 +14,49 @@ def detect_password_spray(events):
     - Few attempts per user
     - Within a short time window
 
-    Emits factual alerts only.
+    Emits factual signals only.
     """
 
     alerts = []
 
-    # ip -> user -> timestamps
+    # ip -> user -> list[events]
     data = defaultdict(lambda: defaultdict(list))
 
-    for e in events:
-        data[e["ip"]][e["user"]].append(e["time"])
+    # Group only failed auth events
+    for event in events:
+        if event.get("event_type") != "invalid_password":
+            continue
+        if "user" not in event:
+            continue
+        data[event["ip"]][event["user"]].append(event)
 
     for ip, users in data.items():
         valid_users = {}
 
-        for user, times in users.items():
-            times.sort()
-            if len(times) <= SPRAY_MAX_ATTEMPTS:
-                valid_users[user] = times
+        # Keep users with low attempt count
+        for user, user_events in users.items():
+            if len(user_events) <= SPRAY_MAX_ATTEMPTS:
+                user_events.sort(key=lambda e: e["timestamp"])
+                valid_users[user] = user_events
 
         if len(valid_users) < SPRAY_USER_THRESHOLD:
             continue
 
-        # Flatten times for window check
-        all_times = sorted(t for ts in valid_users.values() for t in ts)
-        start = all_times[0]
-        end = all_times[-1]
+        # Flatten timestamps for window check
+        all_events = [e for events in valid_users.values() for e in events]
+        all_events.sort(key=lambda e: e["timestamp"])
+
+        start = all_events[0]["timestamp"]
+        end = all_events[-1]["timestamp"]
 
         if end - start <= SPRAY_WINDOW:
             alerts.append({
                 "ip": ip,
-                "event_type": "password_spray",
-                "count": len(valid_users),
-                "window_minutes": int(SPRAY_WINDOW.total_seconds() / 60),
-                "timestamp": end
+                "attempts": len(valid_users),          # proof
+                "total_attempts": len(all_events),     # severity
+                "users": list(valid_users.keys()),
+                "start": start,
+                "end": end,
             })
 
     return alerts
