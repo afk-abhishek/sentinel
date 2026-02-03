@@ -13,6 +13,7 @@ from detector.password_spray import detect_password_spray
 from alerting.alerts_store import persist_incidents # earlier persist_alerts
 from execution.executor import execute_plan
 from execution.planner import generate_execution_plan
+from execution.state import is_action_in_cooldown
 
 
 #  NORMALIZATION 
@@ -162,8 +163,21 @@ def main():
     persist_alerts(decisions)
 
     for decision in decisions:
-        plan = generate_execution_plan(decision)
-        execute_plan(plan)
+    ip = decision["ip"]
+    action = decision["response_action"]
+
+    cooldown = EXECUTION_COOLDOWNS.get(action, 0)
+
+    if cooldown > 0 and is_action_in_cooldown(ip, action):
+        # Skip repeated execution
+        continue
+
+    plan = generate_execution_plan(decision)
+    execute_plan(plan)
+
+    if cooldown > 0:
+        mark_action_executed(ip, action, cooldown)
+
 
 
 if __name__ == "__main__":
