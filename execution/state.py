@@ -42,8 +42,9 @@ def mark_action_executed(ip, action, cooldown_seconds=0):
 
 
 # Alert Tracking 
+# Will be used in future: Real-time streaming alerts
 
-def was_alerted_recently(ip, alert_type, window_seconds):
+def was_alerted_recently(ip, alert_type, window_seconds):  
     _ensure_ip(ip)
     last_alert = STATE[ip]["alerts"].get(alert_type)
 
