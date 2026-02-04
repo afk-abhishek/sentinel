@@ -1,5 +1,7 @@
 from datetime import datetime
 import re
+import os
+
 
 # Match: Failed password for (invalid user )?user from IP
 FAILED_PASSWORD_REGEX = re.compile(
@@ -12,14 +14,22 @@ CONNECTION_CLOSED_REGEX = re.compile(
 )
 
 
-def parse_auth_log(log_path="/var/log/auth.log"):
+def parse_auth_log(log_path=None):
     """
-    Parse /var/log/auth.log and extract FAILED authentication events.
+    Parse authentication log and extract failed authentication events.
+
+    Supports:
+    - Live mode: /var/log/auth.log (default)
+    - Replay mode: custom log file
 
     Priority:
     1. Failed password (real auth failure)
     2. Connection closed (fallback noise)
     """
+
+    # Default path (for Docker / host)
+    if log_path is None:
+        log_path = os.getenv("AUTH_LOG", "/var/log/auth.log")
 
     events = []
 
@@ -33,7 +43,7 @@ def parse_auth_log(log_path="/var/log/auth.log"):
                     "status": "FAILED",
                     "user": m.group("user"),
                     "ip": m.group("ip"),
-                    "time": datetime.fromisoformat(m.group("ts"))
+                    "timestamp": datetime.fromisoformat(m.group("ts"))
                 })
                 continue
 
@@ -44,7 +54,7 @@ def parse_auth_log(log_path="/var/log/auth.log"):
                     "status": "FAILED",
                     "user": m.group("user"),
                     "ip": m.group("ip"),
-                    "time": datetime.fromisoformat(m.group("ts"))
+                    "timestamp": datetime.fromisoformat(m.group("ts"))
                 })
 
     return events
