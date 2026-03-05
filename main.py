@@ -6,6 +6,9 @@ response pipeline for authentication-based attacks detected from
 /var/log/auth.log.
 """
 
+
+import time
+import sys
 from parser.auth_parser import parse_auth_log
 from detector.bruteforce import detect_bruteforce
 from detector.slow_bruteforce import detect_slow_bruteforce
@@ -15,6 +18,13 @@ from execution.executor import execute_plan
 from execution.planner import generate_execution_plan
 from execution.state import is_action_in_cooldown
 
+
+# Cooldown time (seconds) for each response action
+EXECUTION_COOLDOWNS = {
+    "BLOCK_IP": 3600,     # 1 hour
+    "ALERT_ADMIN": 300,   # 5 min
+    "LOG_ONLY": 0
+}
 
 #  NORMALIZATION 
 
@@ -160,17 +170,17 @@ def main():
         decision = decide_response(signal)
         decisions.append({**signal, **decision})
 
-    persist_alerts(decisions)
+    persist_incidents(decisions)
 
     for decision in decisions:
-    ip = decision["ip"]
-    action = decision["response_action"]
+        ip = decision["ip"]
+        action = decision["response_action"]
 
-    cooldown = EXECUTION_COOLDOWNS.get(action, 0)
+        cooldown = EXECUTION_COOLDOWNS.get(action, 0)
 
-    if cooldown > 0 and is_action_in_cooldown(ip, action):
-        # Skip repeated execution
-        continue
+        if cooldown > 0 and is_action_in_cooldown(ip, action):
+            # Skip repeated execution
+            continue
 
     plan = generate_execution_plan(decision)
     execute_plan(plan)
@@ -181,5 +191,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
 
+    if "--watch" in sys.argv:
+        print("Sentinel running in continuous monitoring mode...\n")
+
+        while True:
+            try:
+                main() #run again and again
+                time.sleep(10)   # check logs every 10 seconds
+
+            except KeyboardInterrupt: #ctrl+c
+                print("\nSentinel stopped.")
+                break
+
+    else:
+        main()
