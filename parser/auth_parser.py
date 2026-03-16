@@ -23,8 +23,8 @@ def parse_auth_log(log_path=None):
     - Replay mode: custom log file
     
     Priority:
-    - Real Authentication Failure
-    - Fallback Noise
+    -Invalid password: Real Authentication Failure
+    -Connection closed: Weak signal but treated as invalid password failure --> as the adversary may establish mew connections for every attempt! 
     """
 
     if log_path is None:
@@ -43,7 +43,7 @@ def parse_auth_log(log_path=None):
             except (ValueError,IndexError):
                 pass
 
-            # PRIMARY: Failed password
+            # Primary: Failed password
             m = FAILED_PASSWORD_REGEX.search(line)
             if m:
                 events.append({
@@ -54,7 +54,7 @@ def parse_auth_log(log_path=None):
                 })
                 continue
 
-            # FALLBACK: Connection closed
+            # Secondary: Connection closed(treated as same)
             m = CONNECTION_CLOSED_REGEX.search(line)
             if m:
                 events.append({
