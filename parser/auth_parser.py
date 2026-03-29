@@ -47,7 +47,7 @@ def parse_auth_log(log_path=None):
             m = FAILED_PASSWORD_REGEX.search(line)
             if m:
                 events.append({
-                    "event_type": "invalid_password",
+                    "event_type": "invalid_password", 
                     "user": m.group("user"),
                     "ip": m.group("ip"),
                     "timestamp": timestamp
